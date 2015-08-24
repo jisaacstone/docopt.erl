@@ -1,0 +1,14 @@
+{application, docopt,
+ [
+  {description, "An Erlang docopt library"},
+  {vsn, "1"},
+  {modules, [
+             docopt
+            ]},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {env, []}
+ ]}.
