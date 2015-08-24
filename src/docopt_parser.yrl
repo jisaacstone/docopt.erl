@@ -3,14 +3,13 @@ Header "%% Parser for docopt style options"
 "".
 
 
-Nonterminals docopt usage_block usage_line usage_lines
-elements element
-option_blocks option_block option_lines option_line opt_start words
-flagopts short long
+Nonterminals docopt
+usage_line usage_lines elements element arg paren_expr
+option_lines option_line flagopts short long.
 
 
 Terminals '[' ']' '(' ')' '|' '...' '[-]' '[--]' usage eol default
-long_flag short_flag word argument
+long_flag short_flag word argument.
 
 
 Rootsymbol docopt.
@@ -33,13 +32,20 @@ elements -> element elements : ['$1'|'$2'].
 
 element -> short_flag           : '$1'.
 element -> long_flag            : '$1'.
-element -> argument             : '$1'.
+element -> arg                  : '$1'.
+element -> word                 : '$1'.
 element -> '[-]'                : '$1'.
 element -> '[--]'               : '$1'.
-element -> '(' elements ')'     : {required, '$2'}.
-element -> '[' elements ']'     : {optional, '$2'}.
+element -> paren_expr           : '$1'.
 element -> element '|' element  : {choice, ['$1'|'$3']}.
-element -> element '...'        : {'...', '$1'}.
+
+arg -> argument       : '$1'.
+arg -> argument '...' : {ellipses, '$1'}.
+
+paren_expr -> '(' elements ')'       : {required, '$2'}.
+paren_expr -> '[' elements ']'       : {optional, '$2'}.
+paren_expr -> '(' elements ')' '...' : {required_ellipses, '$2'}.
+paren_expr -> '[' elements ']' '...' : {optional_ellipses, '$2'}.
 
 option_lines -> option_line : ['$1'].
 option_lines -> option_line option_lines : ['$1'|'$2'].

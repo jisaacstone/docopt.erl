@@ -47,10 +47,8 @@ extract_usage(String, Line, Word) ->
 tokenize_usage([Bin], Usage, Line, Word) ->
     case re:split(Bin, newline_re(), [{parts, 2}, {return, binary}]) of
         [Final, Rest] ->
-            io:fwrite([Final] ++ "voinoeir" ++ [Rest]),
             {Usage ++ tokenize_usage_line(Final, Line, Word), Rest, Line+1};
         [Final] ->
-            io:fwrite(Final),
             {Usage ++ tokenize_usage_line(Final, Line, Word), <<>>, Line}
     end;
 tokenize_usage([H|T], Usage, Line, Word) ->
