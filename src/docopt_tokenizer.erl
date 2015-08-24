@@ -13,7 +13,7 @@ comp(S, Opts) ->
         [unicode, caseless, multiline, {newline, any}] ++ Opts),
     R.
 
-newline() -> "$.?.?^".
+newline_re() -> comp("$.?.?^", [dotall]).
 
 skipto(String, Pattern, Line) ->
     case re:run(String, Pattern) of
@@ -25,7 +25,7 @@ skipto(String, Pattern, Line) ->
     end.
 
 numlines(S) ->
-    case re:run(S, comp(newline(), [dotall])) of
+    case re:run(S, newline_re()) of
         {match, TL} -> length(TL);
         nomatch     -> 0
     end.
@@ -35,7 +35,7 @@ extract_usage(String, Line) ->
     extract_usage(String,Line,W).
 
 next_word(S) ->
-    case re:split(S, "\\s+", [{parts, 2}]) of
+    case re:split(S, "[ \t]+", [{parts, 2}, {return, binary}]) of
         [_] -> {error, eof};
         [Word, Rest] -> {Word, Rest}
     end.
@@ -44,8 +44,15 @@ extract_usage(String, Line, Word) ->
     R = comp("^\\s*" ++ binary_to_list(Word) ++ "\\s*"),
     tokenize_usage(tl(re:split(String, R)), [], Line, Word).
 
-tokenize_usage([Rest], Usage, Line, _Word) ->
-    {Usage, Rest, Line};
+tokenize_usage([Bin], Usage, Line, Word) ->
+    case re:split(Bin, newline_re(), [{parts, 2}, {return, binary}]) of
+        [Final, Rest] ->
+            io:fwrite([Final] ++ "voinoeir" ++ [Rest]),
+            {Usage ++ tokenize_usage_line(Final, Line, Word), Rest, Line+1};
+        [Final] ->
+            io:fwrite(Final),
+            {Usage ++ tokenize_usage_line(Final, Line, Word), <<>>, Line}
+    end;
 tokenize_usage([H|T], Usage, Line, Word) ->
     Tokens = Usage ++ tokenize_usage_line(H, Line, Word),
     tokenize_usage(T, Tokens, Line + 1, Word).
@@ -54,7 +61,7 @@ tokenize_usage_line(String, Line, Word) ->
     [{usage, Line, Word}|tokenize_line(String, Line)].
 
 extract_options(String, Line) ->
-    extract_options(re:split(String, comp(newline(), [dotall])), [], Line).
+    extract_options(re:split(String, newline_re()), [], Line).
 
 extract_options([<<>>|T], Tokens, Line) ->
     extract_options(T, Tokens, Line);
@@ -76,7 +83,7 @@ extract_options([H|T], Tokens, Line) ->
     end.
 
 extract_option_line(Bin, Line) ->
-    case re:split(Bin, comp("\\s\\s+"), [{parts, 2}]) of
+    case re:split(Bin, comp("\t|  +"), [{parts, 2}]) of
         [Bin]     -> tokenize_line(Bin, Line);
         [B, Desc] -> tokenize_line(B, Line) ++ maybe_default(Desc, Line)
     end.
@@ -88,14 +95,14 @@ maybe_default(Desc, Line) ->
   end.
 
 tokenize_line(String, Line) ->
-    {ok, R} = re:compile("\\s+|([()[\\]|]|\\.\\.\\.)"),
+    {ok, R} = re:compile("\\s+|(\\[--?\\]|[()[\\]|]|\\.\\.\\.)"),
     lists:foldr(fun(P, T) -> token(P, Line) ++ T end,
                 [{eol, Line}],
                 re:split(String, R, [{return, binary}])).
 
 token(<<>>, _) -> [];
 token(T, L) when T==<<"(">>; T==<<")">>; T==<<"[">>; T==<<"]">>;
-                 T==<<"|">>; T==<<"...">> -> 
+                 T==<<"|">>; T==<<"...">>; T==<<"[-]">>; T==<<"[--]">> -> 
     [{binary_to_atom(T, utf8), L}];
 token(<<$<,_/binary>>=B, L) ->
     case binary:last(B) of
