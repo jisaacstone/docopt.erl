@@ -5,7 +5,7 @@ tokenize(String) when is_list(String) -> tokenize(list_to_binary(String));
 tokenize(Bin) when is_binary(Bin) ->
     {UStart, Line0} = skipto(Bin, comp("^(usage:\\s*)"), 0),
     {Tokens, Rest, Line1} = extract_usage(UStart, Line0),
-    Tokens ++ extract_options(Rest, Line1).
+    {ok, Tokens ++ extract_options(Rest, Line1)}.
 
 comp(S) -> comp(S, []).
 comp(S, Opts) ->
@@ -19,7 +19,8 @@ skipto(String, Pattern, Line) ->
     case re:run(String, Pattern) of
         nomatch ->
             {"", Line};
-        {match, [{_,End}|_]} ->
+        {match, [{Start,Len}|_]} ->
+            End = Start + Len,
             {binary_part(String,End,byte_size(String)-End),
              Line + numlines(binary_part(String,0,End))}
     end.
@@ -31,14 +32,12 @@ numlines(S) ->
     end.
 
 extract_usage(String, Line) ->
-    {W, _} = next_word(String),
+    W = next_word(String),
     extract_usage(String,Line,W).
 
 next_word(S) ->
-    case re:split(S, "[ \t]+", [{parts, 2}, {return, binary}]) of
-        [_] -> {error, eof};
-        [Word, Rest] -> {Word, Rest}
-    end.
+    [Word, _] = re:split(S, "[ \t]+", [{parts, 2}, {return, binary}]),
+    Word.
 
 extract_usage(String, Line, Word) ->
     R = comp("^\\s*" ++ binary_to_list(Word) ++ "\\s*"),
@@ -83,19 +82,20 @@ extract_options([H|T], Tokens, Line) ->
 extract_option_line(Bin, Line) ->
     case re:split(Bin, comp("\t|  +"), [{parts, 2}]) of
         [Bin]     -> tokenize_line(Bin, Line);
-        [B, Desc] -> tokenize_line(B, Line) ++ maybe_default(Desc, Line)
+        [B, Desc] -> tokenize_line(B, Line, maybe_default(Desc, Line))
     end.
 
 maybe_default(Desc, Line) ->
-  case re:run(Desc, "\\[default: ([^\\]]+)\\]", [{capture, [1], list}]) of
-      {match, M} -> [{default, Line, M}];
+  case re:run(Desc, "\\[default: ([^\\]]+)\\]", [{capture, [1], binary}]) of
+      {match, [M]} -> [{default, Line, M}];
       nomatch    -> []
   end.
 
-tokenize_line(String, Line) ->
+tokenize_line(String, Line) -> tokenize_line(String, Line, []).
+tokenize_line(String, Line, Tokens) ->
     {ok, R} = re:compile("\\s+|(\\[--?\\]|[()[\\]|]|\\.\\.\\.)"),
     lists:foldr(fun(P, T) -> token(P, Line) ++ T end,
-                [{eol, Line}],
+                Tokens ++ [{eol, Line}],
                 re:split(String, R, [{return, binary}])).
 
 token(<<>>, _) -> [];
@@ -104,8 +104,7 @@ token(T, L) when T==<<"(">>; T==<<")">>; T==<<"[">>; T==<<"]">>;
     [{binary_to_atom(T, utf8), L}];
 token(<<$<,_/binary>>=B, L) ->
     case binary:last(B) of
-        $> -> [{argument,L,B}];
-        _  -> {error, {B,L}}
+        $> -> [{argument,L,B}]
     end;
 token(<<$-,$-,Rest/binary>>, L) ->
     flag_maybe_arg(long_flag, L, Rest);
@@ -121,6 +120,5 @@ flag_maybe_arg(FlagName, L, Bin) ->
     case re:split(Bin, "=", [{return, binary}]) of
         [Flg, Arg] -> [{FlagName,L,binary_to_atom(Flg,utf8)},
                        {argument,L,Arg}];
-        [Bin]      -> [{FlagName,L,binary_to_atom(Bin,utf8)}];
-        _          -> {error,{Bin,L}}
+        [Bin]      -> [{FlagName,L,binary_to_atom(Bin,utf8)}]
     end.

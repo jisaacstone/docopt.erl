@@ -4,7 +4,7 @@ Header "%% Parser for docopt style options"
 
 
 Nonterminals docopt
-usage_line usage_lines elements element arg paren_expr
+usage_line usage_lines elements element nargs paren_expr
 option_lines option_line flagopts short long.
 
 
@@ -30,43 +30,53 @@ usage_line -> usage elements eol : ['$1'|'$2'].
 elements -> element : ['$1'].
 elements -> element elements : ['$1'|'$2'].
 
-element -> short_flag           : '$1'.
-element -> long_flag            : '$1'.
-element -> arg                  : '$1'.
-element -> word                 : '$1'.
-element -> '[-]'                : '$1'.
-element -> '[--]'               : '$1'.
-element -> paren_expr           : '$1'.
-element -> element '|' element  : {choice, ['$1'|'$3']}.
-
-arg -> argument       : '$1'.
-arg -> argument '...' : {ellipses, '$1'}.
+element -> short_flag          : '$1'.
+element -> long_flag           : '$1'.
+element -> argument            : '$1'.
+element -> word                : '$1'.
+element -> '...'               : '$1'.
+element -> '[-]'               : '$1'.
+element -> '[--]'              : '$1'.
+element -> paren_expr          : '$1'.
+element -> element '|' element : {choice, ['$1'|'$3']}.
 
 paren_expr -> '(' elements ')'       : {required, '$2'}.
 paren_expr -> '[' elements ']'       : {optional, '$2'}.
-paren_expr -> '(' elements ')' '...' : {required_ellipses, '$2'}.
-paren_expr -> '[' elements ']' '...' : {optional_ellipses, '$2'}.
 
 option_lines -> option_line : ['$1'].
 option_lines -> option_line option_lines : ['$1'|'$2'].
 
-option_line -> flagopts : {'$1', nil}.
-option_line -> flagopts default : {'$1', '$2'}.
+option_line -> flagopts eol         : '$1'.
+option_line -> flagopts default eol : setdefault('$1', '$2').
 
-flagopts -> short      : {'$1', nil}.
-flagopts -> long       : {nil, '$1'}.
-flagopts -> short long : {'$1', '$2'}.
+flagopts -> short      : name('$1').
+flagopts -> long       : name('$1').
+flagopts -> short long : alias(name('$1'), name('$2')).
 
-short -> short_flag                : '$1'.
-short -> short_flag argument       : {'$1', '$2'}.
-short -> short_flag argument '...' : {'$1', '$2', '$3'}.
+short -> short_flag       : '$1'.
+short -> short_flag nargs : {'$1', '$2'}.
 
-long -> long_flag                : '$1'.
-long -> long_flag argument       : {'$1', '$2'}.
-long -> long_flag argument '...' : {'$1', '$2', '$3'}.
+long -> long_flag       : '$1'.
+long -> long_flag nargs : {'$1', '$2'}.
+
+nargs -> argument       : {1, 1}.
+nargs -> argument nargs : nargs('$2', '$1').
+nargs -> '[' nargs ']'  : nargs(optional, '$2').
+nargs -> nargs '...'    : nargs(ellipses, '$1').
 
 
 Erlang code.
 
-to_atom({_, _, Chars}) when is_list(Chars) -> list_to_atom(Chars);
-to_atom(Other) -> io:fwrite("~p~n", [Other]), Other.
+name({{_,_,Opt}, Nargs}) -> {Opt, [{nargs,Nargs}]};
+name({_,_,Opt}) -> {Opt, []}.
+
+alias({_,[{nargs,A}]},{T,[{nargs,B}]}) when A =/= B ->
+    throw({error, {0, ?MODULE, ["Syntax Error: ", T]}});
+alias({Short,_},{Long,KW}) -> {Long,[{alias,Short}|KW]}.
+
+setdefault({Arg,KW}, {default,_,Dft}) -> {Arg, [{default,Dft}|KW]}.
+
+nargs({Min, infinity}, _Arg) -> {Min + 1, infinity};
+nargs({Min, Max}, _Arg) -> {Min + 1, Max + 1};
+nargs(optional, {_, Max}) -> {0, Max};
+nargs(ellipses, {Min, _}) -> {Min, infinity}.
