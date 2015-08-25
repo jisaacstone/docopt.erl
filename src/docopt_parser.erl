@@ -12,16 +12,15 @@ alias({_,[{nargs,A}]},{T,[{nargs,B}]}) when A =/= B ->
     throw({error, {0, ?MODULE, ["Syntax Error: ", T]}});
 alias({Short,_},{Long,KW}) -> {Long,[{alias,Short}|KW]}.
 
-setdefault({Arg,KW}, Dft) -> {Arg, [{default,Dft}|KW]}.
-
-eql_args(A, A) -> ok;
-eql_args({_,L,_},B) ->
-    throw({error, {L, ?MODULE, ["Syntax Error: ", B]}}).
+setdefault({Arg,KW}, {default,_,Dft}) -> {Arg, [{default,Dft}|KW]}.
 
 nargs({Min, infinity}, _Arg) -> {Min + 1, infinity};
 nargs({Min, Max}, _Arg) -> {Min + 1, Max + 1};
 nargs(optional, {_, Max}) -> {0, Max};
 nargs(ellipses, {Min, _}) -> {Min, infinity}.
+
+choice({_,_,_}=A,{_,_,_}=B) -> {choice,[A,B]};
+choice(A,{choice,L}) -> {choice,[A|L]}.
 
 -file("/usr/local/Cellar/erlang/17.5/lib/erlang/lib/parsetools-2.0.12/include/yeccpre.hrl", 0).
 %%
@@ -207,7 +206,7 @@ yecctoken2string(Other) ->
 
 
 
--file("src/docopt_parser.erl", 210).
+-file("src/docopt_parser.erl", 209).
 
 yeccpars2(0=S, Cat, Ss, Stack, T, Ts, Tzr) ->
  yeccpars2_0(S, Cat, Ss, Stack, T, Ts, Tzr);
@@ -705,7 +704,7 @@ yeccpars2_21_(__Stack0) ->
 yeccpars2_23_(__Stack0) ->
  [__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   { choice , [ __1 | __3 ] }
+   choice ( __1 , __3 )
   end | __Stack].
 
 -compile({inline,yeccpars2_24_/1}).
@@ -825,7 +824,7 @@ yeccpars2_43_(__Stack0) ->
 yeccpars2_44_(__Stack0) ->
  [__2,__1 | __Stack] = __Stack0,
  [begin
-   [ __1 | __2 ]
+   [ __1 ] ++ __2
   end | __Stack].
 
 -compile({inline,yeccpars2_45_/1}).
@@ -837,4 +836,4 @@ yeccpars2_45_(__Stack0) ->
   end | __Stack].
 
 
--file("src/docopt_parser.yrl", 87).
+-file("src/docopt_parser.yrl", 86).
