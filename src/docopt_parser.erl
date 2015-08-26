@@ -19,8 +19,29 @@ nargs({Min, Max}, _Arg) -> {Min + 1, Max + 1};
 nargs(optional, {_, Max}) -> {0, Max};
 nargs(ellipses, {Min, _}) -> {Min, infinity}.
 
-choice({_,_,_}=A,{_,_,_}=B) -> {choice,[A,B]};
-choice(A,{choice,L}) -> {choice,[A|L]}.
+choice({_,_,_}=E1,{_,_,_}=E2) -> {choice,[E1,E2]};
+choice(Element,{choice,ChoiceList}) -> {choice,[Element|ChoiceList]}.
+
+maybe_expand(Short={_,Line,Value}, Opts) ->
+    case atom_to_list(Value) of
+        [_]   -> Short;
+        Flags -> expand(
+            lists:partition(fun(C) -> knownalias(C, Opts) end, Flags), Line)
+    end.
+
+expand({[], Rest}, L) ->
+    throw({error,{L,?MODULE,["Syntax Error: ", Rest]}});
+expand({Flags, []}, L) ->
+    lists:foldr(fun(C,T) -> [{short_flag,L,list_to_atom([C])}|T] end,
+                [], Flags);
+expand({Flags, Rest}, L) ->
+    lists:foldr(fun(C,T) -> [{short_flag,L,list_to_atom([C])}|T] end,
+                {argument,L,Rest}, Flags).
+
+knownalias(C, Opts) when is_number(C) ->
+    knownalias(list_to_atom([C]), Opts);
+knownalias(A, Opts) ->
+    lists:any(fun({_,K}) -> lists:keyfind(alias,1,K) == {alias,A} end, Opts).
 
 -file("/usr/local/Cellar/erlang/17.5/lib/erlang/lib/parsetools-2.0.12/include/yeccpre.hrl", 0).
 %%
@@ -206,7 +227,7 @@ yecctoken2string(Other) ->
 
 
 
--file("src/docopt_parser.erl", 209).
+-file("src/docopt_parser.erl", 230).
 
 yeccpars2(0=S, Cat, Ss, Stack, T, Ts, Tzr) ->
  yeccpars2_0(S, Cat, Ss, Stack, T, Ts, Tzr);
@@ -712,7 +733,7 @@ yeccpars2_23_(__Stack0) ->
 yeccpars2_24_(__Stack0) ->
  [__3,__2,__1 | __Stack] = __Stack0,
  [begin
-   [ __1 | __2 ]
+   __2
   end | __Stack].
 
 -compile({inline,yeccpars2_25_/1}).
@@ -836,4 +857,4 @@ yeccpars2_45_(__Stack0) ->
   end | __Stack].
 
 
--file("src/docopt_parser.yrl", 86).
+-file("src/docopt_parser.yrl", 107).

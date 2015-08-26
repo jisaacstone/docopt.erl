@@ -106,10 +106,10 @@ token(<<$<,_/binary>>=B, L) ->
     case binary:last(B) of
         $> -> [{argument,L,B}]
     end;
-token(<<$-,$-,Rest/binary>>, L) ->
-    flag_maybe_arg(long_flag, L, Rest);
-token(<<$-,Rest/binary>>, L) ->
-    flag_maybe_arg(short_flag, L, Rest);
+token(<<$-,$-,_/binary>>=F, L) ->
+    flag_maybe_arg(long_flag, L, F);
+token(<<$-,_/binary>>=F, L) ->
+    flag_maybe_arg(short_flag, L, F);
 token(B, L) ->
     case re:run(B, "^[^a-z]*[A-Z][^a-z]*$") of
         {match, _} -> [{argument,L,B}];
@@ -118,7 +118,7 @@ token(B, L) ->
 
 flag_maybe_arg(FlagName, L, Bin) ->
     case re:split(Bin, "=", [{return, binary}]) of
-        [Flg, Arg] -> [{FlagName,L,binary_to_atom(Flg,utf8)},
+        [Flg, Arg] -> [{FlagName,L,Flg},
                        {argument,L,Arg}];
-        [Bin]      -> [{FlagName,L,binary_to_atom(Bin,utf8)}]
+        [Bin]      -> [{FlagName,L,Bin}]
     end.
