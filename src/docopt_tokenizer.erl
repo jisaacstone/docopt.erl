@@ -93,7 +93,7 @@ maybe_default(Desc, Line) ->
 
 tokenize_line(String, Line) -> tokenize_line(String, Line, []).
 tokenize_line(String, Line, Tokens) ->
-    {ok, R} = re:compile("\\s+|(\\[--?\\]|[()[\\]|]|\\.\\.\\.)"),
+    {ok, R} = re:compile("\\s+|([()[\\]|]|\\.\\.\\.)"),
     lists:foldr(fun(P, T) -> token(P, Line) ++ T end,
                 Tokens ++ [{eol, Line}],
                 re:split(String, R, [{return, binary}])).

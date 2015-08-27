@@ -4,11 +4,11 @@ Header "%% Parser for docopt style options"
 
 
 Nonterminals docopt
-usage_line usage_lines elements element nargs paren_expr
+usage_line usage_lines elements element nargs paren_expr choiceexpr
 option_lines option_line flagopts short long.
 
 
-Terminals '[' ']' '(' ')' '|' '...' '[-]' '[--]' usage eol default
+Terminals '[' ']' '(' ')' '|' '...' usage eol default
 long_flag short_flag word argument.
 
 
@@ -19,8 +19,8 @@ Right 100 '|'.
 Unary 200 '...'.
 
 
-docopt -> usage_lines              : parse_usage('$1', []).
-docopt -> usage_lines option_lines : parse_usage('$1', '$2').
+docopt -> usage_lines              : {'$1', []}.
+docopt -> usage_lines option_lines : {'$1', '$2'}.
 
 usage_lines -> usage_line             : ['$1'].
 usage_lines -> usage_line usage_lines : ['$1'|'$2'].
@@ -35,13 +35,16 @@ element -> long_flag           : '$1'.
 element -> argument            : '$1'.
 element -> word                : '$1'.
 element -> '...'               : '$1'.
-element -> '[-]'               : '$1'.
-element -> '[--]'              : '$1'.
 element -> paren_expr          : '$1'.
 element -> element '|' element : choice('$1', '$3').
 
-paren_expr -> '(' elements ')' : {required, '$2'}.
-paren_expr -> '[' elements ']' : {optional, '$2'}.
+paren_expr -> '(' elements ')'                : {required, '$2'}.
+paren_expr -> '[' elements ']'                : {optional, '$2'}.
+paren_expr -> '(' elements '|' choiceexpr ')' : {required, choice('$2', '$4')}.
+paren_expr -> '[' elements '|' choiceexpr ']' : {optional, choice('$2', '$4')}.
+
+choiceexpr -> elements                : '$1'.
+choiceexpr -> elements '|' choiceexpr : choice('$1', '$3').
 
 option_lines -> option_line              : ['$1'].
 option_lines -> option_line option_lines : ['$1'] ++ '$2'.
@@ -84,5 +87,10 @@ nargs(ellipses, {Min, _}) -> {Min, infinity}.
 
 %% PreParsing %%
 
-choice({_,_,_}=E1,{_,_,_}=E2) -> {choice,[E1,E2]};
-choice(Element,{choice,ChoiceList}) -> {choice,[Element|ChoiceList]}.
+choice({_,_,_}=E1,{_,_,_}=E2) -> {choice,[[E1],[E2]]};
+choice(E1,E2) when is_list(E1), is_list(E2) ->
+    {choice,[E1,E2]};
+choice(Element,{choice,ChoiceList}) when is_list(Element) ->
+    {choice,[Element|ChoiceList]};
+choice(Element,{choice,ChoiceList}) ->
+    {choice,[[Element]|ChoiceList]}.

@@ -2,70 +2,176 @@
 
 %% docopt: docopt library's entry point.
 
--export([parse/2]).
+-export([tokenize/1,parse/1,parse/2]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
--define(is_flag(Name), Name==short_flag; Name==long_flag; Name==alias).
+-define(flag(Bin), binary_part(Bin,0,1) == "-").
 
 %% API
 
-parse(ArgList,DocString) ->
+tokenize(DocString) ->
     {ok, Tokens} = docopt_tokenizer:tokenize(DocString),
-    {ok, {UsageLines,Opts}} = docopt_parser:parse(Tokens),
-    {ArgList,parse_usage(UsageLines,Opts)}.
+    Tokens.
+
+parse(DocString) ->
+    {ok, Result} = docopt_parser:parse(tokenize(DocString)),
+    Result.
+
+parse(ArgList,DocString) ->
+    {UsageLines,Opts} = parse(DocString),
+    parse(UsageLines,ArgList,Opts).
 
 %% Internals
 
 %% Parsing %%
 
-parse_usage(UsageLines, Opts) -> parse_usage(UsageLines, [], Opts).
+parse([],_,_) ->
+    {error,invalid_input};
+parse([H|T],ArgList,Opts) ->
+    case parse_line(ArgList,H,Opts,#{}) of
+        {success,Result} -> Result;
+        {error,Reason} -> {error,Reason};
+        fail -> parse(T,ArgList,Opts)
+    end.
 
-parse_usage([], Usage, Opts) -> {Usage, Opts};
-parse_usage([H|T], Usage, Opts) ->
-    parse_usage(T, [usage_line(H, Opts)|Usage], Opts).
+parse_line([],U,_,R) -> check_optional(U,R);
+parse_line(Args,Usage,Opts,Result) ->
+    case consume_next(Args,Usage,Opts,Result) of
+        {NewArgs,NewUsage,NewOpts,NewResult} ->
+            parse_line(NewArgs,NewUsage,NewOpts,NewResult);
+        nomatch -> fail
+    end.
 
-usage_line(Args, Opts) -> usage_line(Args, {[],[]}, Opts).
-
-usage_line([], Usage, Opts) -> {Usage, Opts};
-%% `[options]` is a shortcut for all options.
-usage_line([{'[',_,_},{_,_,<<"options">>},{']',_,_}|T], {P,_}, O) ->
-    usage_line(T,{P,lists:nth(1,O)},O);
-usage_line([{short_flag,_,_}=F|T], U, O) ->
-    usage_line([maybe_expand(F,O)|T], U, O);
-usage_line([A,B|T], {P,F}, O) when ?is_flag(A); ?is_flag(B) ->
-    Name = binary_to_existing_atom(element(3,A),utf8),
-    Opts = set_nargs(O,Name,boolean),
-    usage_line([B|T],{P,[Name|F]},Opts).
-
-maybe_expand({short_flag,L,<<$-,_>>=F},Opts) ->
-    case check_alias(F,Opts) of
-        unknown -> error(L,F);
-        Alias -> [{alias,L,Alias}]
+maybe_consume(Args,[],O,R) ->
+    {Args,O,R};
+maybe_consume(Args,[{required,RElem}|T],O,R) ->
+    case consume_all(Args,RElem,O,R) of
+        {NewArgs,NewOpts,NewResult} ->
+            maybe_consume(NewArgs,T,NewOpts,NewResult);
+        nomatch -> maybe_consume(Args,T,O,R)
     end;
-maybe_expand({short_flag,L,<<$-,Rest/binary>>},Opts) ->
-    maybe_expand(L,Rest,Opts).
-maybe_expand(_,<<>>,_) -> [];
-maybe_expand(L,<<C,Rest/binary>>,Opts) ->
-    case check_alias(<<$-,C>>, Opts) of
-        unknown -> [{argument,L,<<C,Rest/binary>>}];
-        Alias   -> [{alias,L,Alias}|maybe_expand(L,Rest,Opts)]
+maybe_consume(Args,OElem,O,R) ->
+    case consume_next(Args,OElem,O,R) of
+        {NewArgs,NewOElem,NewOpts,NewResult} ->
+            maybe_consume(NewArgs,NewOElem,NewOpts,NewResult);
+        nomatch -> {Args,O,R}
     end.
 
-check_alias(A, Opts) ->
-    Alias = binary_to_atom(A,utf8),
-    case knownalias(Alias, Opts) of
-        true -> Alias;
-        false -> unknown
+consume_all(Args,[],O,R) -> {Args,O,R};
+consume_all(Args,RElem,O,R) ->
+    case consume_next(Args,RElem,O,R) of
+        {NewArgs,NewRElem,NewOpts,NewResult} ->
+            consume_all(NewArgs,NewRElem,NewOpts,NewResult);
+        nomatch -> nomatch
     end.
-knownalias(A, Opts) ->
+
+consume_choice(_,[],_,_) -> nomatch;
+consume_choice(Args,[C|Choices],Opts,Result) ->
+    case consume_all(Args,C,Opts,Result) of
+        {NewArgs,NewOpts,NewResult} ->
+            {NewArgs,NewOpts,NewResult};
+        nomatch -> consume_choice(Args,Choices,Opts,Result)
+    end.
+
+%% Choice: A | B
+consume_next(A,[{choice,C}|U],O,R) ->
+    case consume_choice(A,C,O,R) of
+        {NewArgs,NewOpts,NewResult} ->
+            {NewArgs,U,NewOpts,NewResult};
+        nomatch -> nomatch
+    end;
+%% Optional: [A,B]
+consume_next(Args,[{optional,OElem},{'...',_}|Rest]=U,Opts,Result) ->
+    case maybe_consume(Args,OElem,Opts,Result) of
+        {Args,Opts,Result} -> {Args,Rest,Opts,Result};
+        {NewArgs,NewOpts,NewResult} -> {NewArgs,U,NewOpts,NewResult}
+    end;
+consume_next(A,[{optional,OElem}|U],O,R) ->
+    {Args,Opts,Result} = maybe_consume(A,OElem,O,R),
+    {Args,U,Opts,Result};
+%% Required: (A,B)
+consume_next(Args,[{required,RElem},{'...',L}|Rest],Opts,Result) ->
+    case consume_all(Args,RElem,Opts,Result) of
+        {NewArgs,NewOpts,NewResult} ->
+            {NewArgs,[{optional,RElem},{'...',L}|Rest],NewOpts,NewResult};
+        nomatch -> nomatch
+    end;
+consume_next(Args,[{required,RElem}|Rest],Opts,Result) ->
+    case consume_all(Args,RElem,Opts,Result) of
+        {NewArgs,NewOpts,NewResult} -> {NewArgs,Rest,NewOpts,NewResult};
+        nomatch -> nomatch
+    end;
+%% Positional: a <b> C
+consume_next([Word|Args],[{word,_,Word}|U],O,R) ->
+    {Args,U,O,maps:put(to_atom(Word),true,R)};
+consume_next([H|T],[{argument,_,ArgName},{'...',_}|_]=U,O,R)
+when not ?flag(H) ->
+    {T,U,O,add_value(R,ArgName,H)};
+consume_next([H|T],[{argument,_,ArgName}|U],O,R)
+when not ?flag(H) ->
+    {T,U,O,maps:put(to_atom(ArgName),H,R)};
+%% Options: -a --b
+consume_next([<<$-,C,_/binary>>=A|T],U,O,R) when C =/= $- ->
+    consume_next([expand_alias(A,O)|T],U,O,R);
+consume_next(Args,[{short_flag,_,_}=A|Rest],Opts,Result) ->
+    consume_next(Args,[expand_alias(A,Opts)|Rest],Opts,Result);
+
+
+consume_next(_,_,_,_) -> nomatch.
+
+to_atom(Bin) -> binary_to_atom(Bin,utf8).
+add_value(Map,Key,Value) ->
+    Atom = to_atom(Key),
+    maps:put(Atom,case maps:find(Atom,Map) of
+        {ok,V} when is_list(V) -> [Value|V];
+        {ok,V}                 -> [Value,V];
+        error                  -> [Value]
+    end,Map).
+
+%% ensure any remaining elements in the usage line are marked optional
+check_optional([],R) -> {success,R};
+check_optional([{optional,_}|T],R) -> check_optional(T,R);
+check_optional(_,_) -> fail.
+
+%% expand arguments
+expand_alias(<<$-,C,Rest/binary>>,Opts) ->
+    case option_name(to_atom(<<$-,C>>),Opts) of
+        unknown -> perror(0,<<$-,C>>);
+        Opt     -> [atom_to_binary(Opt,utf8)|expand_alias(Rest,Opts)]
+    end;
+expand_alias(<<>>,_) -> [];
+expand_alias(<<C,Rest/binary>>,Opts) ->
+    case option_name(to_atom(<<$-,C>>),Opts) of
+        unknown -> [<<C,Rest/binary>>];
+        Opt     -> [atom_to_binary(Opt,utf8)|expand_alias(Rest,Opts)]
+    end;
+%% expand parsed tokens
+expand_alias({short_flag,L,<<$-,C,Rest/binary>>},Opts) ->
+    case option_name(to_atom(<<$-,C>>),Opts) of
+        unknown -> perror(L,<<$-,C>>);
+        Opt     -> [{long_flag,L,Opt}|expand_alias(L,Rest,Opts)]
+    end.
+expand_alias(_,<<>>,_) -> [];
+expand_alias(L,<<C,Rest/binary>>,Opts) ->
+    case option_name(to_atom(<<$-,C>>),Opts) of
+        unknown -> [{argument,L,<<C,Rest/binary>>}];
+        Opt     -> [{long_flag,L,Opt}|expand_alias(L,Rest,Opts)]
+    end.
+
+option_name(Alias, Opts) ->
+    case lookup_alias(Alias, Opts) of
+        {found,Opt} -> Opt;
+        notfound    -> unknown
+    end.
+lookup_alias(A, Opts) ->
     lists:any(fun({_,K}) -> lists:keyfind(alias,1,K) == {alias,A} end, Opts).
 
 %% Errors %%
 
-error(Line, Token) ->
-    throw({error,{Line,?MODULE,["Syntax Error: ", Token]}});
+perror(Line, Token) ->
+    throw({error,{Line,?MODULE,["Syntax Error: ", Token]}}).
 
 %% Tests
 
