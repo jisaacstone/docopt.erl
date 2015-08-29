@@ -66,6 +66,7 @@ nargs -> argument       : {1, 1}.
 nargs -> argument nargs : nargs('$2', '$1').
 nargs -> '[' nargs ']'  : nargs(optional, '$2').
 nargs -> nargs '...'    : nargs(ellipses, '$1').
+nargs -> '...'          : {count, infinity}.
 
 
 Erlang code.

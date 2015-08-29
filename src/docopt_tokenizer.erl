@@ -1,6 +1,10 @@
 -module(docopt_tokenizer).
 -export([tokenize/1]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 tokenize(String) when is_list(String) -> tokenize(list_to_binary(String));
 tokenize(Bin) when is_binary(Bin) ->
     {UStart, Line0} = skipto(Bin, comp("^(usage:\\s*)"), 0),
@@ -122,3 +126,30 @@ flag_maybe_arg(FlagName, L, Bin) ->
                        {argument,L,Arg}];
         [Bin]      -> [{FlagName,L,Bin}]
     end.
+
+%% Tests
+
+-ifdef(TEST).
+
+tokenize_test() ->
+    {ok,[{usage,_,_},{word,_,_},{eol,_}]} = tokenize(
+        "usage: foo f"),
+    {ok,[{usage,_,_},{word,_,_},{eol,_}]} = tokenize(
+        "bla bla bla \nusage: foo f\n bla bla bla"),
+    {ok,[{usage,_,_},{argument,_,_},{short_flag,_,_},{long_flag,_,_},
+        {argument,_,_},{eol,_}]} = tokenize(
+        "usage: foo <bar> -baz --biz BOZ"),
+    {ok,[{usage,_,_},{'[',_},{word,_,_},{']',_},{eol,_},
+        {short_flag,_,_},{argument,_,_},{eol,_},
+        {short_flag,_,_},{long_flag,_,_},{eol,_}]} = tokenize(
+        "usage: foo [options]\n\noptions:\n-f FOO  foo\n-b, --bar  bar"),
+    {ok,[{usage,_,_},{'[',_},{'(',_},{word,_,_},{word,_,_},{')',_},
+        {'|',_},{long_flag,_,_},{argument,_,_},{']',_},{eol,_}]} = tokenize(
+        "usage: foo [(bar baz) | --fin=RAKE]"),
+    {ok,[{usage,_,_},{'[',_},{short_flag,_,_},{']',_},{eol,_},
+        {short_flag,_,_},{default,_,_},{eol,_]} = tokenize(
+        "usage: foo [-b]\n\n-b  Bean [default: lima]").
+
+-endif.
+
+%% End of Module.
